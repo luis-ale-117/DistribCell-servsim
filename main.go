@@ -171,6 +171,30 @@ func main() {
 		}
 		log.Println("Simulation rules ", simulationRules)
 
+		query = "SELECT * FROM `generaciones` WHERE `simulacion_id` = ? ORDER BY `iteracion` LIMIT 1"
+		stmt, err = db.Prepare(query)
+		if err != nil {
+			log.Println(err)
+			time.Sleep(1 * time.Second)
+			continue
+		}
+
+		var lastGen Generation
+		err = stmt.QueryRow(simulation.id).Scan(&lastGen.id, &lastGen.simulacion_id, &lastGen.iteracion, &lastGen.contenido)
+		if err != nil {
+			log.Printf("Error executing query: %s, waiting %d seconds", err, WAIT_TIME)
+			time.Sleep(WAIT_TIME * time.Second)
+			continue
+		}
+
+		log.Println("Generation ", lastGen)
+		stmt.Close()
+
+		content := matrixFromContent(lastGen.contenido, simulation.anchura, simulation.altura)
+		for i := range content {
+			log.Println(content[i])
+		}
+
 		// Do something
 		log.Println("Doing something")
 		time.Sleep(WAIT_TIME * time.Second)
