@@ -2,17 +2,20 @@ package main
 
 import (
 	"database/sql"
-	"fmt"
+	"encoding/json"
 	"log"
 	"os"
 	"os/signal"
+	"strconv"
 	"time"
 
 	"github.com/go-sql-driver/mysql"
 )
 
 const (
-	WAIT_TIME = 5 // seconds
+	WAIT_TIME           = 3  // seconds
+	MAX_RETRY           = 10 // times
+	MAX_PROCESSING_TIME = 20 // seconds
 )
 
 func main() {
@@ -53,7 +56,7 @@ func main() {
 		User:                 user,
 		Passwd:               passwd,
 		Net:                  protocol,
-		Addr:                 fmt.Sprintf("%s:%s", addr, port),
+		Addr:                 addr + ":" + port,
 		DBName:               name,
 		AllowNativePasswords: true,
 	}
@@ -65,105 +68,112 @@ func main() {
 			time.Sleep(WAIT_TIME * time.Second)
 			continue
 		}
+		defer func() {
+			err = db.Close()
+			if err != nil {
+				log.Println(err)
+			} else {
+				log.Println("Database connection closed")
+			}
+		}()
 		log.Println("Database connection opened")
 		break
 	}
 
 	// Ping database
-	for {
-		err = db.Ping()
-		if err != nil {
-			log.Printf("Error pinging database: %s, waiting %v seconds", err, WAIT_TIME)
-			time.Sleep(WAIT_TIME * time.Second)
-			continue
-		}
-		log.Println("Database connection established")
-		break
-	}
+	// for {
+	// 	err = db.Ping()
+	// 	if err != nil {
+	// 		log.Printf("Error pinging database: %s, waiting %v seconds", err, WAIT_TIME)
+	// 		time.Sleep(WAIT_TIME * time.Second)
+	// 		continue
+	// 	}
+	// 	log.Println("Database connection established")
+	// 	break
+	// }
 
-	// Do something with database
+	// Get queue jobs and process them
 	for {
-		// time now
-		now := time.Now()
-		// unix
-		unix := now.Unix()
-		log.Println(unix)
-
-		// update query
-		// UPDATE Proyectos SET (proceso_id = ?, ulrima_actualizacion=ahora) WHERE estado!='DONE' AND ahora-ultima_actualizacion > tiempo_limite ORDER BY ultima_actualizacion ASC LIMIT 1;
-		query := "UPDATE `Proyectos` SET `proceso_id` = ?,`estado` = ?, `ultima_actualizacion`=? WHERE `estado` != ?" +
-			" AND ? - `ultima_actualizacion` > ? ORDER BY `ultima_actualizacion` ASC LIMIT 1"
-		// prepare statement
+		// Get current unix time in seconds
+		nowUnix := time.Now().Unix()
+		// Update one undone job from database
+		query := "UPDATE `cola` SET ultima_actualizacion=? WHERE `ultima_actualizacion` + " +
+			strconv.Itoa(MAX_PROCESSING_TIME) + "<" + strconv.FormatInt(nowUnix, 10) +
+			" AND last_insert_id(id) ORDER BY `ultima_actualizacion` ASC LIMIT 1"
 		stmt, err := db.Prepare(query)
 		if err != nil {
 			log.Println(err)
 			time.Sleep(1 * time.Second)
 			continue
 		}
-		// execute statement
-		_, err = stmt.Exec(unix, "PROCESSING", unix, "DONE", unix, 5)
+
+		result, err := stmt.Exec(nowUnix)
 		if err != nil {
-			log.Println(err)
-			time.Sleep(1 * time.Second)
+			log.Printf("Error executing statement: %s, waiting %d seconds", err, WAIT_TIME)
+			time.Sleep(WAIT_TIME * time.Second)
 			continue
 		}
-		// close statement
-		err = stmt.Close()
-		if err != nil {
-			log.Println(err)
-			time.Sleep(1 * time.Second)
+		job_id, _ := result.LastInsertId()
+		rowsAffected, _ := result.RowsAffected()
+		log.Println("Process id: ", job_id, " Rows affected: ", rowsAffected)
+		stmt.Close()
+
+		if rowsAffected == 0 {
+			log.Println("No jobs to process")
+			time.Sleep(WAIT_TIME * time.Second)
 			continue
 		}
 
-		// select query
-		query = "SELECT * FROM `Proyectos` WHERE `proceso_id` = ? ORDER BY `ultima_actualizacion` ASC LIMIT 1"
-
-		// prepare statement
+		query = "SELECT * FROM `cola` WHERE `id` = ?"
 		stmt, err = db.Prepare(query)
 		if err != nil {
 			log.Println(err)
 			time.Sleep(1 * time.Second)
 			continue
 		}
-		// execute statement
-		rows, err := stmt.Query(unix)
+
+		var jobToDo Job
+		err = stmt.QueryRow(job_id).Scan(&jobToDo.id, &jobToDo.simulacion_id, &jobToDo.num_generaciones, &jobToDo.ultima_actualizacion)
+		if err != nil {
+			log.Printf("Error executing query: %s, waiting %d seconds", err, WAIT_TIME)
+			time.Sleep(WAIT_TIME * time.Second)
+			continue
+		}
+
+		log.Println("Job to do: ", jobToDo)
+		stmt.Close()
+
+		query = "SELECT * FROM `simulaciones` WHERE `id` = ?"
+		stmt, err = db.Prepare(query)
 		if err != nil {
 			log.Println(err)
 			time.Sleep(1 * time.Second)
 			continue
 		}
-		// Print rows
-		for rows.Next() {
-			var id int
-			var usuario_id int
-			var name string
-			// Consider description can be null
-			var descripcion sql.NullString
-			var estado string
-			var ultima_actualizacion int64
-			var proceso_id int64
 
-			err = rows.Scan(&id, &usuario_id, &name, &descripcion, &estado, &ultima_actualizacion, &proceso_id)
-			if err != nil {
-				log.Println(err)
-				time.Sleep(1 * time.Second)
-				continue
-			}
-			log.Printf("id: %d, usuario_id: %d, name: %s, descripcion: %s, estado: %s, ultima_actualizacion: %d, proceso_id: %d",
-				id, usuario_id, name, descripcion.String, estado, ultima_actualizacion, proceso_id)
-
-		}
-		// close statement
-		err = stmt.Close()
+		var simulation Simulation
+		var simulationRules []SimulationRule
+		err = stmt.QueryRow(jobToDo.simulacion_id).Scan(&simulation.id, &simulation.usuario_id, &simulation.nombre, &simulation.descripcion, &simulation.anchura, &simulation.altura, &simulation.estados, &simulation.reglas, &simulation.tipo)
 		if err != nil {
-			log.Println(err)
-			time.Sleep(1 * time.Second)
+			log.Printf("Error executing query: %s, waiting %d seconds", err, WAIT_TIME)
+			time.Sleep(WAIT_TIME * time.Second)
 			continue
 		}
+
+		log.Println("Simulation ", simulation)
+		stmt.Close()
+
+		err = json.Unmarshal([]byte(simulation.reglas), &simulationRules)
+		if err != nil {
+			log.Printf("Error unmarshalling json: %s, waiting %d seconds", err, WAIT_TIME)
+			time.Sleep(WAIT_TIME * time.Second)
+			continue
+		}
+		log.Println("Simulation rules ", simulationRules)
 
 		// Do something
 		log.Println("Doing something")
-		time.Sleep(1 * time.Second)
+		time.Sleep(WAIT_TIME * time.Second)
 	}
 
 }
