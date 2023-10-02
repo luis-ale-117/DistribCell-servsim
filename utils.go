@@ -27,6 +27,7 @@ func processAutomaton(db *sql.DB, automaton *cella.Cella2d, simulation Simulatio
 	log.Println("Last generation processed:", lastGen.iteracion)
 	for i := lastGen.iteracion; i < job.num_generaciones; i++ {
 		log.Printf("Processing generation %d for job %d", i, job.id)
+		automaton.SetAuxBordersAsToroidal()
 		if automaton.NextGeneration() != nil {
 			log.Fatalf("Error processing generation %d for job %d", i, job.id)
 		}
