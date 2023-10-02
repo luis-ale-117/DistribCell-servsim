@@ -10,12 +10,14 @@ import (
 	"time"
 
 	"github.com/go-sql-driver/mysql"
+	"github.com/luis-ale-117/cella"
+	"github.com/mackerelio/go-osstat/memory"
 )
 
 const (
 	WAIT_TIME           = 3  // seconds
-	MAX_RETRY           = 10 // times
 	MAX_PROCESSING_TIME = 20 // seconds
+	MAX_MEMORY_USAGE    = 70 // percentage
 )
 
 func main() {
@@ -80,20 +82,23 @@ func main() {
 		break
 	}
 
-	// Ping database
-	// for {
-	// 	err = db.Ping()
-	// 	if err != nil {
-	// 		log.Printf("Error pinging database: %s, waiting %v seconds", err, WAIT_TIME)
-	// 		time.Sleep(WAIT_TIME * time.Second)
-	// 		continue
-	// 	}
-	// 	log.Println("Database connection established")
-	// 	break
-	// }
-
 	// Get queue jobs and process them
 	for {
+		memory, err := memory.Get()
+		if err != nil {
+			log.Println(err)
+			return
+		}
+		usedPercentage := float64(memory.Used) / float64(memory.Total) * 100
+		log.Printf("memory total: %d Mbytes\n", memory.Total/1024/1024)
+		log.Printf("memory used: %d Mbytes\n", memory.Used/1024/1024)
+		log.Printf("Porcentaje de memoria usada: %v %%\n", usedPercentage)
+		if usedPercentage > MAX_MEMORY_USAGE {
+			log.Printf("Memory usage is too high, waiting %d seconds", WAIT_TIME)
+			time.Sleep(WAIT_TIME * time.Second)
+			continue
+		}
+
 		// Get current unix time in seconds
 		nowUnix := time.Now().Unix()
 		// Update one undone job from database
@@ -139,8 +144,6 @@ func main() {
 			time.Sleep(WAIT_TIME * time.Second)
 			continue
 		}
-
-		log.Println("Job to do: ", jobToDo)
 		stmt.Close()
 
 		query = "SELECT * FROM `simulaciones` WHERE `id` = ?"
@@ -159,8 +162,6 @@ func main() {
 			time.Sleep(WAIT_TIME * time.Second)
 			continue
 		}
-
-		log.Println("Simulation ", simulation)
 		stmt.Close()
 
 		err = json.Unmarshal([]byte(simulation.reglas), &simulationRules)
@@ -169,9 +170,8 @@ func main() {
 			time.Sleep(WAIT_TIME * time.Second)
 			continue
 		}
-		log.Println("Simulation rules ", simulationRules)
 
-		query = "SELECT * FROM `generaciones` WHERE `simulacion_id` = ? ORDER BY `iteracion` LIMIT 1"
+		query = "SELECT * FROM `generaciones` WHERE `simulacion_id` = ? ORDER BY `iteracion` DESC LIMIT 1"
 		stmt, err = db.Prepare(query)
 		if err != nil {
 			log.Println(err)
@@ -187,17 +187,25 @@ func main() {
 			continue
 		}
 
-		log.Println("Generation ", lastGen)
 		stmt.Close()
 
-		content := matrixFromContent(lastGen.contenido, simulation.anchura, simulation.altura)
-		for i := range content {
-			log.Println(content[i])
-		}
+		log.Println("Creating automaton")
+		automaton := cella.NewCella2d(simulation.anchura, simulation.altura, simulation.estados)
+		initGrid := cella.NewGrid(simulation.anchura, simulation.altura)
+		nextGrid := cella.NewGrid(simulation.anchura, simulation.altura)
+		loadContentToGrid(lastGen.contenido, initGrid)
+		automaton.SetInitGrid(initGrid)
+		automaton.SetNextGrid(nextGrid)
+		automaton.SetAuxBordersAsToroidal()
 
-		// Do something
-		log.Println("Doing something")
-		time.Sleep(WAIT_TIME * time.Second)
+		automatonRules := make([]*cella.Rule2d, len(simulationRules))
+		for i, rule := range simulationRules {
+			automatonRules[i] = cella.NewRule2d(rule.Condition, cella.Cell(rule.State), simulation.estados)
+		}
+		automaton.SetRules(automatonRules)
+
+		log.Println("Processing automaton")
+		go processAutomaton(db, automaton, simulation, lastGen, jobToDo)
 	}
 
 }
