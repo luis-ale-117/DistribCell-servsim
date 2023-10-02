@@ -17,7 +17,7 @@ import (
 const (
 	WAIT_TIME           = 3  // seconds
 	MAX_PROCESSING_TIME = 20 // seconds
-	MAX_MEMORY_USAGE    = 70 // percentage
+	MAX_MEMORY_USAGE    = 80 // percentage
 )
 
 func main() {
@@ -138,7 +138,7 @@ func main() {
 		}
 
 		var jobToDo Job
-		err = stmt.QueryRow(job_id).Scan(&jobToDo.id, &jobToDo.simulacion_id, &jobToDo.num_generaciones, &jobToDo.ultima_actualizacion)
+		err = stmt.QueryRow(job_id).Scan(&jobToDo.id, &jobToDo.simulacion_id, &jobToDo.ultima_actualizacion, &jobToDo.num_generaciones)
 		if err != nil {
 			log.Printf("Error executing query: %s, waiting %d seconds", err, WAIT_TIME)
 			time.Sleep(WAIT_TIME * time.Second)
@@ -180,7 +180,7 @@ func main() {
 		}
 
 		var lastGen Generation
-		err = stmt.QueryRow(simulation.id).Scan(&lastGen.id, &lastGen.simulacion_id, &lastGen.iteracion, &lastGen.contenido)
+		err = stmt.QueryRow(simulation.id).Scan(&lastGen.id, &lastGen.iteracion, &lastGen.simulacion_id, &lastGen.contenido)
 		if err != nil {
 			log.Printf("Error executing query: %s, waiting %d seconds", err, WAIT_TIME)
 			time.Sleep(WAIT_TIME * time.Second)

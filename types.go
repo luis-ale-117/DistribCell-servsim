@@ -5,24 +5,22 @@ import (
 )
 
 type Job struct {
-	id            int
-	simulacion_id int
-	// proceso_id           sql.NullString
-	// estado               string
-	num_generaciones     int
-	ultima_actualizacion int64
+	id                   int   `db:"id"`
+	simulacion_id        int   `db:"simulacion_id"`
+	num_generaciones     int   `db:"num_generaciones"`
+	ultima_actualizacion int64 `db:"ultima_actualizacion"`
 }
 
 type Simulation struct {
-	id          int
-	usuario_id  int
-	nombre      string
-	descripcion sql.NullString
-	anchura     int
-	altura      int
-	estados     int
-	reglas      string
-	tipo        string
+	id          int            `db:"id"`
+	usuario_id  int            `db:"usuario_id"`
+	nombre      string         `db:"nombre"`
+	descripcion sql.NullString `db:"descripcion"`
+	anchura     int            `db:"anchura"`
+	altura      int            `db:"altura"`
+	estados     int            `db:"estados"`
+	reglas      string         `db:"reglas"`
+	tipo        string         `db:"tipo"`
 }
 
 type SimulationRule struct {
@@ -31,8 +29,8 @@ type SimulationRule struct {
 }
 
 type Generation struct {
-	id            int
-	iteracion     int
-	simulacion_id int
-	contenido     []byte
+	id            int    `db:"id"`
+	iteracion     int    `db:"iteracion"`
+	simulacion_id int    `db:"simulacion_id"`
+	contenido     []byte `db:"contenido"`
 }
