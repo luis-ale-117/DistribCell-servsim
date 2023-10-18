@@ -16,8 +16,8 @@ import (
 
 const (
 	WAIT_TIME           = 3  // seconds
-	MAX_PROCESSING_TIME = 20 // seconds
-	MAX_MEMORY_USAGE    = 80 // percentage
+	MAX_PROCESSING_TIME = 30 // seconds
+	MAX_MEMORY_USAGE    = 90 // percentage
 )
 
 func main() {
@@ -51,7 +51,12 @@ func main() {
 	name := os.Getenv("DB_NAME")
 	// check if env variables are set
 	if user == "" || passwd == "" || addr == "" || port == "" || name == "" {
-		log.Fatal("DB_USER, DB_PASSWORD, DB_ADDR, DB_PORT, DB_NAME must be set")
+		log.Println("Env vars should be set. Using default values.")
+		user = "user"
+		passwd = "user"
+		addr = "localhost"
+		port = "3306"
+		name = "dbname"
 	}
 	// create mysql config
 	cfg := mysql.Config{
@@ -90,9 +95,7 @@ func main() {
 			return
 		}
 		usedPercentage := float64(memory.Used) / float64(memory.Total) * 100
-		log.Printf("memory total: %d Mbytes\n", memory.Total/1024/1024)
-		log.Printf("memory used: %d Mbytes\n", memory.Used/1024/1024)
-		log.Printf("Porcentaje de memoria usada: %v %%\n", usedPercentage)
+		// log.Printf("Porcentaje de memoria usada: %v %%\n", usedPercentage)
 		if usedPercentage > MAX_MEMORY_USAGE {
 			log.Printf("Memory usage is too high, waiting %d seconds", WAIT_TIME)
 			time.Sleep(WAIT_TIME * time.Second)
@@ -102,15 +105,10 @@ func main() {
 		// Get current unix time in seconds
 		nowUnix := time.Now().Unix()
 		// Update one undone job from database
-		query := "UPDATE `cola` SET ultima_actualizacion=? WHERE `ultima_actualizacion` + " +
-			strconv.Itoa(MAX_PROCESSING_TIME) + "<" + strconv.FormatInt(nowUnix, 10) +
-			" AND last_insert_id(id) ORDER BY `ultima_actualizacion` ASC LIMIT 1"
-		stmt, err := db.Prepare(query)
-		if err != nil {
-			log.Println(err)
-			time.Sleep(1 * time.Second)
-			continue
-		}
+		query := "UPDATE cola SET ultima_actualizacion = ? WHERE ultima_actualizacion + " +
+			strconv.Itoa(MAX_PROCESSING_TIME) + " < " + strconv.FormatInt(nowUnix, 10) +
+			" AND last_insert_id(id) LIMIT 1"
+		stmt, _ := db.Prepare(query)
 
 		result, err := stmt.Exec(nowUnix)
 		if err != nil {
@@ -118,27 +116,24 @@ func main() {
 			time.Sleep(WAIT_TIME * time.Second)
 			continue
 		}
-		job_id, _ := result.LastInsertId()
-		rowsAffected, _ := result.RowsAffected()
-		log.Println("Process id: ", job_id, " Rows affected: ", rowsAffected)
 		stmt.Close()
 
+		proceso_id, _ := result.LastInsertId()
+		rowsAffected, _ := result.RowsAffected()
 		if rowsAffected == 0 {
 			log.Println("No jobs to process")
 			time.Sleep(WAIT_TIME * time.Second)
 			continue
 		}
 
-		query = "SELECT * FROM `cola` WHERE `id` = ?"
-		stmt, err = db.Prepare(query)
-		if err != nil {
-			log.Println(err)
-			time.Sleep(1 * time.Second)
-			continue
-		}
+		log.Printf("Job %d selected. Affected %d", proceso_id, rowsAffected)
 
-		var jobToDo Job
-		err = stmt.QueryRow(job_id).Scan(&jobToDo.id, &jobToDo.simulacion_id, &jobToDo.ultima_actualizacion, &jobToDo.num_generaciones)
+		fields := "id, simulacion_id, ultima_actualizacion, num_generaciones"
+		query = "SELECT " + fields + " FROM cola WHERE id = ?"
+		stmt, _ = db.Prepare(query)
+
+		var jobToDo Cola
+		err = stmt.QueryRow(proceso_id).Scan(&jobToDo.id, &jobToDo.simulacion_id, &jobToDo.ultima_actualizacion, &jobToDo.num_generaciones)
 		if err != nil {
 			log.Printf("Error executing query: %s, waiting %d seconds", err, WAIT_TIME)
 			time.Sleep(WAIT_TIME * time.Second)
@@ -146,16 +141,12 @@ func main() {
 		}
 		stmt.Close()
 
-		query = "SELECT * FROM `simulaciones` WHERE `id` = ?"
-		stmt, err = db.Prepare(query)
-		if err != nil {
-			log.Println(err)
-			time.Sleep(1 * time.Second)
-			continue
-		}
+		fields = "id, usuario_id, nombre, descripcion, anchura, altura, estados, reglas, tipo"
+		query = "SELECT " + fields + " FROM simulaciones WHERE id = ?"
+		stmt, _ = db.Prepare(query)
 
-		var simulation Simulation
-		var simulationRules []SimulationRule
+		var simulation Simulaciones
+		var simulationRules []ReglaSimul
 		err = stmt.QueryRow(jobToDo.simulacion_id).Scan(&simulation.id, &simulation.usuario_id, &simulation.nombre, &simulation.descripcion, &simulation.anchura, &simulation.altura, &simulation.estados, &simulation.reglas, &simulation.tipo)
 		if err != nil {
 			log.Printf("Error executing query: %s, waiting %d seconds", err, WAIT_TIME)
@@ -171,22 +162,17 @@ func main() {
 			continue
 		}
 
-		query = "SELECT * FROM `generaciones` WHERE `simulacion_id` = ? ORDER BY `iteracion` DESC LIMIT 1"
-		stmt, err = db.Prepare(query)
-		if err != nil {
-			log.Println(err)
-			time.Sleep(1 * time.Second)
-			continue
-		}
+		fields = "id, iteracion, simulacion_id, contenido"
+		query = "SELECT " + fields + " FROM generaciones WHERE simulacion_id = ? ORDER BY iteracion DESC LIMIT 1"
+		stmt, _ = db.Prepare(query)
 
-		var lastGen Generation
+		var lastGen Generaciones
 		err = stmt.QueryRow(simulation.id).Scan(&lastGen.id, &lastGen.iteracion, &lastGen.simulacion_id, &lastGen.contenido)
 		if err != nil {
 			log.Printf("Error executing query: %s, waiting %d seconds", err, WAIT_TIME)
 			time.Sleep(WAIT_TIME * time.Second)
 			continue
 		}
-
 		stmt.Close()
 
 		log.Println("Creating automaton")
@@ -204,8 +190,8 @@ func main() {
 		}
 		automaton.SetRules(automatonRules)
 
-		log.Println("Processing automaton")
+		log.Printf("Processing automaton sim: %v cola: %v", simulation.nombre, jobToDo.id)
 		go processAutomaton(db, automaton, simulation, lastGen, jobToDo)
+		time.Sleep(WAIT_TIME * time.Second)
 	}
-
 }

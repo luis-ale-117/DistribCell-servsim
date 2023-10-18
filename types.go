@@ -4,14 +4,14 @@ import (
 	"database/sql"
 )
 
-type Job struct {
+type Cola struct {
 	id                   int   `db:"id"`
 	simulacion_id        int   `db:"simulacion_id"`
 	num_generaciones     int   `db:"num_generaciones"`
 	ultima_actualizacion int64 `db:"ultima_actualizacion"`
 }
 
-type Simulation struct {
+type Simulaciones struct {
 	id          int            `db:"id"`
 	usuario_id  int            `db:"usuario_id"`
 	nombre      string         `db:"nombre"`
@@ -23,12 +23,12 @@ type Simulation struct {
 	tipo        string         `db:"tipo"`
 }
 
-type SimulationRule struct {
+type ReglaSimul struct {
 	Condition string `json:"condition"`
 	State     int    `json:"state"`
 }
 
-type Generation struct {
+type Generaciones struct {
 	id            int    `db:"id"`
 	iteracion     int    `db:"iteracion"`
 	simulacion_id int    `db:"simulacion_id"`
