@@ -51,7 +51,7 @@ func processAutomaton(db *sql.DB, automaton *cella.Cella2d, simulation Simulacio
 		log.Printf("Saving generation %d of %d to database for job %s", i+1, proceso.num_generaciones, simulation.nombre)
 		content := automaton.GetNextGrid()
 		query := "INSERT INTO generaciones (simulacion_id, iteracion, contenido) VALUES (?, ?, ?)"
-		_, err = db.Exec(query, i+1, gridToBytes(content))
+		_, err = db.Exec(query, simulation.id, i+1, gridToBytes(content))
 		if err != nil {
 			log.Fatalf("Error executing query: %s", err)
 		}

@@ -69,6 +69,7 @@ func main() {
 	}
 	// Try to open connection
 	for {
+		log.Println("Conf: ", cfg.FormatDSN())
 		db, err = sql.Open("mysql", cfg.FormatDSN())
 		if err != nil {
 			log.Printf("Error opening database: %s, waiting %v seconds", err, WAIT_TIME)
@@ -76,6 +77,9 @@ func main() {
 			continue
 		}
 		defer func() {
+			if db == nil {
+				return
+			}
 			err = db.Close()
 			if err != nil {
 				log.Println(err)
